@@ -1,11 +1,11 @@
 [package]
-name = "libdwm"
+name = "librwm"
 version = "0.1.0"
 authors = ["Kloenk <kloenk@kloenk.de>"]
 edition = "2018"
 
 [lib]
-name = "dwm"
+name = "rwm"
 crate-type = ["staticlib", "cdylib"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

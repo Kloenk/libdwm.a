@@ -1,22 +1,21 @@
 
-DESTDIR=./out/
-CBINDGEN-BIN=cbindgen
-FILES=src/*.rs Cargo.toml
+DESTDIR ?= ./out
+CBINDGEN-BIN ?= cbindgen
+BUILDFLAGS ?= --release
+CARGO_OUT ?= target/release
+SRC = $(wildcard src/*.rs)
 
-${DESTDIR}/libdwm.h: src/lib.rs Cargo.toml ${DESTDIR}/libdwm.a ${DESTDIR}/libdwm.so
-	${CBINDGEN-BIN} -l C > ${DESTDIR}/libdwm.h
+all: ${DESTDIR}/rwm.h ${DESTDIR}/librwm.so ${DESTDIR}/librwm.a
 
-${DESTDIR}/libdwm.a: src/lib.rs Cargo.toml
+${DESTDIR}/rwm.h: ${SRC}
 	mkdir -p ${DESTDIR}
-	cargo build --release
-	cp target/release/libdwm.a ${DESTDIR}/libdwm.a
+	${CBINDGEN-BIN} -l C > ${DESTDIR}/rwm.h
 
-${DESTDIR}/libdwm.so: src/lib.rs Cargo.toml
+${DESTDIR}/librwm.%: ${SRC}
+	cargo build ${BUILDFLAGS}
 	mkdir -p ${DESTDIR}
-	cargo build --release
-	cp target/release/libdwm.so ${DESTDIR}/libdwm.so
-	-strip ${DESTDIR}/libdwm.so
+	cp ${CARGO_OUT}/$(notdir $@) ${DESTDIR}/$(notdir $@)
 
 clean:
-	rm -r ${DESTDIR}
-	rm -r target/
+	-rm -r ${DESTDIR}
+	cargo clean
