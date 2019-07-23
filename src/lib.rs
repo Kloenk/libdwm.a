@@ -36,7 +36,7 @@ pub struct Command_r {
 struct Command {
     name: String,
     func: fn(arg: *const Arg_r),
-    arg: Arg,
+    arg: usize,
 }
 
 impl Command {
@@ -48,7 +48,9 @@ impl Command {
             let name = CStr::from_ptr(v.name).to_string_lossy().to_string();
             println!("add {}", name);
             let func = v.func;
-            let arg = Arg::fromArg_r(v.arg);
+            //let arg = Arg::fromArg_r(v.arg);
+            let arg = Box::new(v.arg);
+            let arg: usize = Box::into_raw(arg) as usize;
 
             ret.insert(name.clone(), Self{
                 name,
@@ -62,7 +64,9 @@ impl Command {
 
     unsafe fn run(&self) {
         let func: fn(arg: *const Arg_r) = self.func;
-        func(self.arg.to_arg());
+        let arg = Box::from_raw(self.arg as *mut Arg_r);
+        let arg = Box::leak(arg);
+        func(arg);
     }
 }
 
@@ -98,7 +102,9 @@ impl Arg {
             Arg::f(f) => return &Arg_r { f: *f},
             Arg::i(i) => return &Arg_r { i: *i},
             Arg::ui(ui) => return &Arg_r { ui: *ui},
-            _ => return &Arg_r { f: 0.0},
+            Arg::v(v) => {
+                return &Arg_r { v: *v as *const c_void};
+            },
         }
     }
 }
