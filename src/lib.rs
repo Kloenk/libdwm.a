@@ -27,11 +27,10 @@ pub struct Command_r {
     arg: Arg_r,
 }
 
-#[derive(Send)]
 struct Command {
     name: String,
     func: fn(arg: *const Arg_r),
-    arg: Box<Arg_r>,
+    arg: Arg,
 }
 
 impl Command {
@@ -43,7 +42,7 @@ impl Command {
             let name = CStr::from_ptr(v.name).to_string_lossy().to_string();
             println!("add {}", name);
             let func = v.func;
-            let arg = Box::new(v.arg);
+            let arg = Arg::fromArg_r(v.arg);
 
             ret.insert(name.clone(), Self{
                 name,
@@ -55,9 +54,9 @@ impl Command {
         ret
     }
 
-    fn run(&self) {
+    unsafe fn run(&self) {
         let func: fn(arg: *const Arg_r) = self.func;
-        func(self.arg.as_ref());
+        func(self.arg.to_arg());
     }
 }
 
@@ -71,7 +70,31 @@ union Arg_r {
     v: *const c_void,
 }
 
+enum Arg {
+    i(i32),
+    ui(u32),
+    f(f32),
+    v(usize),
+}
 
+impl Arg {
+    unsafe fn fromArg_r(arg: Arg_r) -> Self {
+        match arg {
+            Arg_r { v } => return Arg::v(v as *const usize as usize),
+            Arg_r { ui } => return Arg::ui(ui),
+            Arg_r { f } => return Arg::f(f),
+            Arg_r { i } => return Arg::i(i),
+        }
+    }
+    unsafe fn to_arg(&self) -> *const Arg_r {
+        match self {
+            Arg::f(f) => return &Arg_r { f: *f},
+            Arg::i(i) => return &Arg_r { i: *i},
+            Arg::ui(ui) => return &Arg_r { ui: *ui},
+            _ => return &Arg_r { f: 0.0},
+        }
+    }
+}
 
 fn parse_vars(input: &str) -> String {
     if input.starts_with('$') {
@@ -118,9 +141,10 @@ pub extern "C" fn init_rwm(path: *const c_char, commands: *const Command_r, len:
         }
         let listener = UnixListener::bind(path).unwrap();
 
-        if let Some(foo) = commands.get("term") {
-            foo.run();
-        }
+        if let Some(foo) = commands.get("toggletag") {
+            println!("run quit");
+            //unsafe { foo.run() };
+        } 
         loop {
             if let Ok(job) = rx.try_recv() {
                 match job {
