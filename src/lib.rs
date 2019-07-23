@@ -3,9 +3,12 @@ use std::os::raw::*;
 
 use std::io::{BufRead, BufReader};
 use std::os::unix::prelude::*;
+use std::io::prelude::*;
 use std::os::unix::net::{UnixStream, UnixListener};
 
 use std::collections::HashMap;
+use std::thread;
+use std::process;
 
 use std::sync::mpsc;
 use std::sync::Mutex;
@@ -15,6 +18,8 @@ extern crate lazy_static;
 
 lazy_static! {
     static ref SENDER: Mutex<Option<mpsc::Sender<Message>>> = Mutex::new(None);
+    static ref RECEIVER: Mutex<Option<mpsc::Receiver<Message>>> = Mutex::new(None);
+    static ref HANDLE: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None);
 }
 
 
@@ -27,6 +32,7 @@ pub struct Command_r {
     arg: Arg_r,
 }
 
+#[derive(Clone, Debug)]
 struct Command {
     name: String,
     func: fn(arg: *const Arg_r),
@@ -70,6 +76,7 @@ union Arg_r {
     v: *const c_void,
 }
 
+#[derive(Copy, Clone, Debug)]
 enum Arg {
     i(i32),
     ui(u32),
@@ -114,11 +121,37 @@ fn parse_vars(input: &str) -> String {
 }
 
 #[no_mangle]
+pub extern "C" fn run_rwm() -> c_int {
+    let mut receiver = RECEIVER.lock().unwrap();
+    if let Some(rx) = receiver.take() {
+        if let Ok(job) = rx.try_recv() {
+            match job {
+                Message::Command(cmd) => {
+                    println!("run command {}", cmd.name);
+                    unsafe { cmd.run() };
+                }
+                _ => (),
+            }
+        }
+        *receiver = Some(rx);
+        return 0;   
+    }
+    1
+}
+
+#[no_mangle]
 pub extern "C" fn init_rwm(path: *const c_char, commands: *const Command_r, len: c_int) -> c_int {
     let (tx, rx): (mpsc::Sender<Message>, mpsc::Receiver<Message>) = mpsc::channel();
 
     let mut sender = SENDER.lock().unwrap();
     *sender = Some(tx);
+    drop(sender);
+
+    let (tx2, rx2): (mpsc::Sender<Message>, mpsc::Receiver<Message>) = mpsc::channel();
+
+    let mut receiver = RECEIVER.lock().unwrap();
+    *receiver = Some(rx2);
+    drop(receiver);
 
     let path = unsafe { CStr::from_ptr(path).to_string_lossy() };
     let path = parse_vars(&path);
@@ -131,7 +164,8 @@ pub extern "C" fn init_rwm(path: *const c_char, commands: *const Command_r, len:
     function(&commands[1].arg); */
     let commands = unsafe { Command::from_ptr(commands, len)};
 
-    std::thread::spawn(move || {
+    let mut handle = HANDLE.lock().unwrap();
+    let join = std::thread::spawn(move || {
         std::fs::remove_file(std::path::Path::new(&path)).unwrap_or_else(|_| {});
         let path: &OsStr = OsStr::new(&path);
         let path = std::path::Path::new(&path);
@@ -140,20 +174,23 @@ pub extern "C" fn init_rwm(path: *const c_char, commands: *const Command_r, len:
             std::fs::create_dir_all(&path).unwrap();
         }
         let listener = UnixListener::bind(path).unwrap();
+        listener.set_nonblocking(true).unwrap();
 
         if let Some(foo) = commands.get("toggletag") {
             println!("run quit");
-            //unsafe { foo.run() };
-        } 
+            tx2.send(Message::Command(foo.clone()));
+        }
         loop {
-            if let Ok(job) = rx.try_recv() {
+            let recv = rx.try_recv();
+            if let Ok(job) = recv {
+                let job: Message = job;
                 match job {
                     Message::Quit => {
-                        let mut sender = SENDER.lock().unwrap();
-                        *sender = None;
+                        SENDER.lock().unwrap().take();
+
+                        println!("quit");
 
                         // stop and delete socket
-                        drop(listener);
                         std::fs::remove_file(std::path::Path::new(&path)).unwrap_or_else(|_| {});
                         break;
                     }
@@ -162,9 +199,32 @@ pub extern "C" fn init_rwm(path: *const c_char, commands: *const Command_r, len:
                     }
                 }
             }
+            if let Ok((conn, _)) = listener.accept() {
+                std::thread::sleep(std::time::Duration::from_millis(40));
+                let mut stream: UnixStream = conn;
+                let mut input = String::new();
+                stream.read_to_string(&mut input).unwrap();
+                let input = input.trim();
+                println!("got command: {} {:?}", input, commands);
+                if let Some(cmd) = commands.get(input) {
+                    println!("execute command {}", cmd.name);
+                    //stream.write(b"ok").unwrap();
+                    tx2.send(Message::Command(cmd.clone()));
+                } else {
+                    println!("unknown command");
+                    /* stream.write(b"unknown command").unwrap_or_else(|err| {
+                        println!("error writing status: {}", err);
+                        0
+                    }); */
+                }
+            } 
+            std::thread::sleep(std::time::Duration::from_millis(40));
         }
     });
+    *handle = Some(join);
 
+
+    println!("giveing thread back");
     return 0;
 }
 
@@ -179,13 +239,22 @@ pub extern "C" fn quit_rwm() -> c_int {
         },
     };
 
+    println!("send quit command");
+
     ref_tx.send(Message::Quit).unwrap();
+    drop(ref_tx); drop(sender);
+
+    let mut handle = HANDLE.lock().unwrap();
+    handle.take().unwrap().join().unwrap();
     0
 }
 
 
 #[derive(Debug)]
-pub enum Message {
+enum Message {
     /// command to quit job
     Quit,
+
+    /// Command to execute
+    Command(Command),
 }
