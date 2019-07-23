@@ -11,6 +11,4 @@ Cargo.lock
 
 Cargo.lock
 
-#Added by cargo
-#
-#already existing elements are commented out
+out/
