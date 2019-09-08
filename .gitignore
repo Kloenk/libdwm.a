@@ -12,3 +12,6 @@ Cargo.lock
 Cargo.lock
 
 out/
+
+# nixos result
+result*
