@@ -1,7 +1,11 @@
-let 
-  mozillaOverlay = import (builtins.fetchTarball https://github.com/mozilla/nixpkgs-mozilla/archive/master.tar.gz);
-  pkgs = import <nixpkgs> { overlays = [ mozillaOverlay ]; };
-in
+{
+  system ? builtins.currentSystem,
+  mozillaOverlay ? import (builtins.fetchTarball https://github.com/mozilla/nixpkgs-mozilla/archive/master.tar.gz),
+  pkgs ? import <nixpkgs> { overlays = [ mozillaOverlay ]; },
+  ...
+}:
+
+
 with pkgs;
 let
   rust = rustChannelOfTargets "stable" null [ "x86_64-unknown-linux-gnu" ];
@@ -18,13 +22,14 @@ let
     CARGO_HOME="$(mktemp -d cargo-home.XXX)";
     doCheck = false;
     installPhase = ''
-      mkdir -p $out/lib;
-      mkdir -p $out/inc;
+      mkdir -p $out/usr/include;
+      mkdir -p $out/lib/;
       cp target/release/librwm.a $out/lib/librwm.a
       cp target/release/librwm.so $out/lib/librwm.so
-      cp target/rwm.h $out/inc/rwm.h
+      cp target/rwm.h $out/usr/include/rwm.h
     '';
   };
 in {
   inherit rustPlatform rwm;
 }
+
