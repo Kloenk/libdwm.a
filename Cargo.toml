@@ -15,4 +15,4 @@ crate-type = ["staticlib", "cdylib"]
 lazy_static = "1.3.0"
 
 [build-dependencies]
-cbindgen = "0.9.1"
+cbindgen = "0.14.5"
